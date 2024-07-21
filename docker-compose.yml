@@ -1,0 +1,27 @@
+services:
+  stag-php:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/var/www/html/
+    ports:
+      - "8000:80"
+    depends_on:
+      - stl-mysql
+
+  stag-mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE: stl
+      MYSQL_USER: stl_user
+      MYSQL_PASSWORD: password
+    ports:
+      - "3320:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql-init:/docker-entrypoint-initdb.d
+
+volumes:
+  mysql_data:

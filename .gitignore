@@ -1,0 +1,3 @@
+system/.env
+.idea/
+**/error_log
