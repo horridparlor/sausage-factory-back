@@ -8,8 +8,13 @@ include("../../system/Database.php");
 
 function getStatus(Database $database): string
 {
+    $sql = <<<SQL
+
+    SQL;
+    $warnings = $database->query($sql);
     return $database->responseSuccess(array(
-       'data' => 222
+        'countOfWarnings' => sizeof($warnings),
+        'warnings' => $warnings
     ));
 }
 
