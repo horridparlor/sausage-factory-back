@@ -2,6 +2,8 @@
 
 namespace system;
 
+use PDO;
+
 enum StandardType: string {
     case BOOLEAN = 'boolean';
     case DATE = '^2[0-9][0-9][0-9]-(0[1-9]|1[0-2])-(0[1-9]|1[0-9]|2[0-9]|3[0-1])$';
@@ -29,6 +31,7 @@ Class StandardMessages {
     const EMPTY = "empty";
     const STRING = "string";
     const REQUIRED_PARAM_MISSING = "Required parameter %s is missing";
+    const FORBIDDEN_PARAM = "Forbidden param %s";
     const PARAM_MISSING_REGEX = "/^Required parameter .* is missing$/";
     const REQUIRED_PARAM_WITH_OPTION_MISSING = "Requires parameter (%s or %s)%s";
     const REQUIRED_PARAM_ARRAY = "Parameter %s %s be an array";
@@ -38,6 +41,7 @@ Class StandardMessages {
     const REQUIRED_PARAM_NOT_UNIQUE = "Parameter %s must be unique, {%s} already exists";
     const REQUIRED_PARAM_NOT_EXIST = "Parameter %s%s, %s with id {%s} does not exist";
     const PARAM_CASCADING_ENTITY = "With %s {%s}, related %s exists%s";
+    const REQUEST_DATA_PARAM_MISSING_FROM_SQL_QUERY = "SqlQuery {%s}, missing param requestData";
 
     public static function doesNotExist(string $itemName): string {
         return "Selected " . $itemName . " does not exist";
@@ -55,6 +59,10 @@ Class StandardMessages {
 
     public static function paramMissing(array $paramTree): string {
         return sprintf(self::REQUIRED_PARAM_MISSING, implode("->", $paramTree));
+    }
+
+    public static function forbiddenParam(array $paramTree): string {
+        return sprintf(self::FORBIDDEN_PARAM, implode("->", $paramTree));
     }
 
     public static function paramWithOptionMissing(string $param, string $option, array $paramTree): string {
@@ -104,6 +112,10 @@ Class StandardMessages {
     private static function sIfMany(int $value): string {
         return $value > 1 ? 's' : '';
     }
+
+    public static function requestDataParamMissingFromSqlQuery(string $queryIdentifier) {
+        return sprintf(self::REQUEST_DATA_PARAM_MISSING_FROM_SQL_QUERY, $queryIdentifier);
+    }
 }
 const NO_SIZE = -1;
 class ParamCheck {
@@ -114,9 +126,11 @@ class ParamCheck {
     public array $iterative;
     public bool $isIterative;
     public bool $required;
+    public bool $forbidden;
     public int $minSize;
     public int $maxSize;
     public StandardType $type;
+    public int $pdoType;
     public string $redux;
     public SqlComparison|null $unique;
     public SqlComparison|null $exists;
@@ -128,9 +142,11 @@ class ParamCheck {
         $this->iterative = array();
         $this->isIterative = false;
         $this->required = true;
+        $this->forbidden = false;
         $this->minSize = NO_SIZE;
         $this->maxSize = NO_SIZE;
         $this->type = StandardType::UNKNOWN;
+        $this->pdoType = \PDO::PARAM_INT;
         $this->redux = '';
         $this->unique = null;
         $this->exists = null;
@@ -140,8 +156,9 @@ class ParamCheck {
 class SqlComparison {
     private string $sql;
     private array $replacements;
-    public function __construct(string $sql, array $replacements = []) {
+    public function __construct(string $sql, array $replacements = [], \stdClass $requestData = null) {
         $this->sql = $sql;
+        $replacements = $this->fillReplacements($replacements, $requestData);
         $this->replacements = $replacements;
     }
     public function getSql(): string {
@@ -150,8 +167,25 @@ class SqlComparison {
     public function getReplacements(): array {
         return $this->replacements;
     }
-    public function eatReplacement(string $key, mixed $value): void {
-        $this->replacements[$key] = ['value' => $value, 'type' => \PDO::PARAM_INT];
+    public function eatReplacement(string $key, mixed $value, int $pdoType): void {
+        $this->replacements[$key] = ['value' => $value, 'type' => $pdoType];
+    }
+    public function fillReplacements(array $source, \stdClass|null $requestData): array {
+        $replacements = array();
+        foreach ($source as $key => $replacement) {
+            $value = $replacement['value'];
+            $replacements[$key] = $replacement;
+            if (is_string($value) && strpos($value, '$') === 0) {
+                $replace = substr($value, 1);
+                if (is_null($requestData)) {
+                    echo StandardMessages::requestDataParamMissingFromSqlQuery($key) . ' ';
+                }
+                if (isset($requestData->$replace)) {
+                    $replacements[$key]['value'] = $requestData->$replace;
+                }
+            }
+        }
+        return $replacements;
     }
 }
 class AccessBlock
@@ -184,6 +218,9 @@ class AccessBlock
                 return $paramCheck->required ? StandardMessages::paramMissing($treeWithThis) : null;
             }
         } else {
+            if ($paramCheck->forbidden) {
+                return StandardMessages::forbiddenParam($treeWithThis);
+            }
             $value = $request->$param;
             if (isset($paramCheck->option)) {
                 $option = $paramCheck->option;
@@ -198,17 +235,17 @@ class AccessBlock
             if (!$paramCheck->isIterative && $type != StandardType::UNKNOWN and !self::checkParamType($value, $type, $paramCheck->redux)) {
                 return StandardMessages::paramInvalidType($value, $type, $paramCheck->redux, $treeWithThis);
             }
-            if (!self::checkParamUnique($value, $paramCheck->unique, $database)) {
+            if (!self::checkParamUnique($value, $paramCheck, $database)) {
                 return StandardMessages::paramNotUnique($value, $treeWithThis);
             }
             if (!is_null($paramCheck->exists)) {
-                $exists = self::checkParamExists($value, $paramCheck->exists, $database);
+                $exists = self::checkParamExists($value, $paramCheck, $database);
                 if (!is_null($exists)) {
                     return StandardMessages::paramNotExist($exists, $treeWithThis);
                 }
             }
             if (!is_null($paramCheck->cascade)) {
-                $cascadingEntity = self::checkParamCascade($value, $paramCheck->cascade, $database);
+                $cascadingEntity = self::checkParamCascade($value, $paramCheck, $database);
                 if (!is_null($cascadingEntity)) {
                     return StandardMessages::paramCascadingEntity($cascadingEntity['prefix'], $value, $cascadingEntity['suffix'], $treeWithThis);
                 }
@@ -219,6 +256,9 @@ class AccessBlock
             if ($missing) { return $missing; }
         }
         foreach ($paramCheck->children as $child) {
+            if (is_array($value)) {
+                $value = new \stdClass();
+            }
             $missing = self::handleParamCheck($child, $value, $database, $treeWithThis);
             if ($missing) { return $missing; }
         }
@@ -254,22 +294,24 @@ class AccessBlock
         };
     }
 
-    private static function checkParamUnique(mixed $value, SqlComparison|null $comparison, Database $database): bool {
+    private static function checkParamUnique(mixed $value, ParamCheck $paramCheck, Database $database): bool {
+        $comparison = $paramCheck->unique;
         if (!$comparison) {
             return true;
         }
-        $comparison->eatReplacement('comparedValue', $value);
+        $comparison->eatReplacement('comparedValue', $value, $paramCheck->pdoType);
         return empty($database->query($comparison->getSql(), $comparison->getReplacements()));
     }
 
-    private static function checkParamExists(mixed $value, SqlComparison|null $comparison, Database $database): null|array
+    private static function checkParamExists(mixed $value, ParamCheck $paramCheck, Database $database): null|array
     {
+        $comparison = $paramCheck->exists;
         $exists = array(
             'prefix' => '',
             'suffix' => '',
             'entity' => ''
         );
-        $comparison->eatReplacement('comparedValue', $value);
+        $comparison->eatReplacement('comparedValue', $value, $paramCheck->pdoType);
         $result = $database->query($comparison->getSql(), $comparison->getReplacements());
         if (empty($result)) {
             return null;
@@ -285,12 +327,13 @@ class AccessBlock
         }
         return $exists;
     }
-    private static function checkParamCascade(mixed $value, SqlComparison|null $comparison, Database $database): null|array {
+    private static function checkParamCascade(mixed $value, ParamCheck $paramCheck, Database $database): null|array {
+        $comparison = $paramCheck->cascade;
         $cascadingEntity = array(
             'prefix' => '',
             'suffix' => ''
         );
-        $comparison->eatReplacement('comparedValue', $value);
+        $comparison->eatReplacement('comparedValue', $value, $paramCheck->pdoType);
         $result = $database->query($comparison->getSql(), $comparison->getReplacements());
         if (!sizeof($result)) {
             return null;
@@ -352,6 +395,10 @@ class AccessBlock
         if (isset($array['required']) && !$array['required']) {
             $paramCheck->required = false;
         }
+        if (isset($array['forbidden']) && $array['forbidden']) {
+            $paramCheck->forbidden = true;
+            $paramCheck->required = false;
+        }
         if (isset($array['notEmpty']) && $array['notEmpty']) {
             $paramCheck->minSize = 1;
         }
@@ -369,6 +416,9 @@ class AccessBlock
             } else {
                 $paramCheck->type = $type;
                 $paramCheck->redux = $type->value;
+            }
+            if ($paramCheck->type == StandardType::STRING) {
+                $paramCheck->pdoType = PDO::PARAM_STR;
             }
         }
         if (isset($array['unique'])) {

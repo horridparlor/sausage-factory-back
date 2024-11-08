@@ -8,6 +8,9 @@ enum RequestType: string {
     case POST = 'POST';
 }
 const POST_REQUEST = 'POST';
+const DEFAULT_UNAUTHORIZED_ERROR = array(
+    'error' => 'Please authenticate'
+);
 
 class Database
 {
@@ -36,6 +39,23 @@ class Database
         } catch (\PDOException $e) {
             die("Failed to connect to DATABASE: " . $e->getMessage());
         }
+    }
+
+    public function queryWithDecode(string $sql, array $columnsToDecode, ?array $replacements = array(), ?bool $debug = false): array {
+        return $this->decodeColumns(
+            $this->query($sql, $replacements, $debug),
+            $columnsToDecode
+        );
+    }
+
+    public function queryIds(string $sql, ?array $replacements = array(), ?bool $debug = false): array
+    {
+        $ids = array();
+        $data = $this->query($sql, $replacements, $debug);
+        foreach ($data as $row) {
+            $ids []= $row['id'];
+        }
+        return $ids;
     }
 
     public function query(string $sql, ?array $replacements = array(), ?bool $debug = false): array
@@ -67,11 +87,6 @@ class Database
         return intval($this->query('SELECT LAST_INSERT_ID() id;')[0]['id']);
     }
 
-    public static function arrify(array $ids): string
-    {
-        return "(" . implode(", ", $ids) . ")";
-    }
-
     private static function getRequestParams(RequestType $requestType): array {
         return match($requestType) {
             RequestType::GET => $_GET,
@@ -81,6 +96,11 @@ class Database
 
     public function getGetParams(): void {
         $this->params = self::getRequestParams(RequestType::GET);
+        foreach ($this->params as $key => &$value) {
+            if (is_numeric($value)) {
+                $value = str_contains($value, '.') ? (float) $value : (int) $value;
+            }
+        }
     }
     public function getPostParams(): void {
         $this->params = self::getRequestParams(RequestType::POST);
@@ -88,6 +108,9 @@ class Database
 
     public function getIntParam(string $id, mixed $default = null)
     {
+        if (!isset($this->params[$id])) {
+            return $default;
+        }
         $value = $this->params[$id];
         if (is_null($value) or $value === '') {
             return $default;
@@ -96,6 +119,9 @@ class Database
     }
     public function getFloatParam(string $id, mixed $default = null)
     {
+        if (!isset($this->params[$id])) {
+            return $default;
+        }
         $value = $this->params[$id];
         if (is_null($value)) {
             return $default;
@@ -105,6 +131,9 @@ class Database
 
     public function getStringParam(string $id, mixed $default = null)
     {
+        if (!isset($this->params[$id])) {
+            return $default;
+        }
         $value = $this->params[$id];
         if (is_null($value)) {
             return $default;
@@ -114,6 +143,9 @@ class Database
 
     public function getRawStringParam(string $id, mixed $default = null)
     {
+        if (!isset($this->params[$id])) {
+            return $default;
+        }
         $value = $this->params[$id];
         if (is_null($value)) {
             return $default;
@@ -123,11 +155,35 @@ class Database
 
     public function getBooleanParam(string $id, mixed $default = null)
     {
+        if (!isset($this->params[$id])) {
+            return $default;
+        }
         $value = $this->params[$id];
         if (is_null($value)) {
             return $default;
         }
         return boolval($value);
+    }
+    public function getArrayParam(string $id, mixed $default = null)
+    {
+        if (!isset($this->params[$id])) {
+            return $default;
+        }
+        $value = $this->params[$id];
+        if (!is_array($value)) {
+            return $default;
+        }
+
+        return $value;
+    }
+
+    public function getObjectParam(string $id, mixed $default = null)
+    {
+        $array = $this->getArrayParam($id, $default);
+        if ($array) {
+            return json_decode(json_encode($array));
+        }
+        return $array;
     }
 
     public static function allowCORS(): void
@@ -199,7 +255,9 @@ class Database
     }
 
 
-    public static function responseNotFound(array $json): string {
+    public static function responseNotFound(array $json = array(
+        'error' => 'Not found'
+    )): string {
         http_response_code(404);
         return json_encode($json);
     }
@@ -214,18 +272,38 @@ class Database
         return json_encode($json);
     }
 
-    public static function responseUnauthorized(array $json = array(
-        'error' => 'Please authenticate'
-    )): string {
+    public static function responseUnauthorized(array $json = null): string {
+        if (!$json) {
+            $json = DEFAULT_UNAUTHORIZED_ERROR;
+        }
         http_response_code(401);
         return json_encode($json);
     }
 
+    public function findUser(int $userId): User|null {
+        $sql = <<<SQL
+            SELECT
+                user.id id,
+                username,
+                CASE
+                    WHEN role.id IS NOT NULL THEN role.accessRights
+                    ELSE IFNULL(user.accessRights, "{}")
+                END AS accessRights,
+                user.isActive
+            FROM user
+            LEFT JOIN userRole role
+                ON role.id = user.roleId
+            WHERE user.id = :userId
+        SQL;
+        $replacements = array(
+           'userId' => ['value' => $userId, 'type' => \PDO::PARAM_INT],
+        );
+        return $this->buildUserFromQuery($sql, $replacements);
+    }
+
     public function getUser(): User|null {
         $headers = apache_request_headers();
-        $authHeader = $headers["Authorization"] ?? $headers["authorization"] ?? $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? null;
-
-        $token = null;
+        $authHeader = $headers["Authorization"] ?? $headers["authorization"] ?? $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? null;        $token = null;
         if ($authHeader && preg_match('/Bearer\s(\S+)/', $authHeader, $matches)) {
             $token = $matches[1];
         }
@@ -236,23 +314,46 @@ class Database
             SELECT
                 user.id id,
                 username,
-                isAdmin
+                CASE
+                    WHEN role.id IS NOT NULL THEN role.accessRights
+                    ELSE IFNULL(user.accessRights, "{}")
+                END AS accessRights,
+                user.isActive
             FROM authToken
             JOIN user
                 ON user.id = authToken.userId
+            LEFT JOIN userRole role
+                ON role.id = user.roleId
             WHERE token = :token
             AND expiration > NOW();
         SQL;
         $replacements = array(
             'token' => ['value' => $token, 'type' => \PDO::PARAM_STR],
         );
+        return $this->buildUserFromQuery($sql, $replacements);
+    }
+    private function buildUserFromQuery(string $sql, array $replacements): User|null {
         $user = self::query($sql, $replacements);
         if (!sizeof($user)) {
             return null;
         }
-        return new User(intval($user[0]['id']), $user[0]['username'], boolval($user[0]['isAdmin']));
+        $user = $user[0];
+        return new User(intval($user['id']), $user['username'], json_decode($user['accessRights']), boolval($user['isActive']));
     }
     public function getRequestData(): \stdClass {
-        return json_decode(json_encode($this->params));
+        $requestData = json_decode(json_encode($this->params));
+        return $requestData == array() ? new \stdClass() : $requestData;
+    }
+
+    public function decodeColumns(array $rows, array $columnsToDecode): array {
+        if (!$rows || !sizeof($columnsToDecode)) {
+            return $rows;
+        }
+        foreach ($rows as &$row) {
+            foreach ($columnsToDecode as $column) {
+                $row[$column] = $row[$column] ? json_decode($row[$column]) : null;
+            }
+        }
+        return $rows;
     }
 }
