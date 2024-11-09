@@ -1,5 +1,5 @@
 services:
-  sausage-party-php:
+  sausage-factory-php:
     build:
       context: .
       dockerfile: Dockerfile
@@ -8,9 +8,9 @@ services:
     ports:
       - "8000:80"
     depends_on:
-      - sausage-party-mysql
+      - sausage-factory-mysql
 
-  sausage-party-mysql:
+  sausage-factory-mysql:
     image: mysql:8.0
     environment:
       MYSQL_ROOT_PASSWORD: password

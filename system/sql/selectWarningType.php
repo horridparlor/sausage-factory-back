@@ -9,3 +9,9 @@ const WARNING_TYPE_EXISTS_SQL = <<<SQL
         WHERE id = :comparedValue
     )
 SQL;
+
+const SELECT_WARNING_TYPE_SQL = <<<SQL
+    SELECT id, name
+    FROM warningType
+SQL;
+

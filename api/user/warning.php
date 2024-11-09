@@ -42,7 +42,7 @@ function postWarning(Database $database): string
     );
     $database->query($sql, $replacements);
     $warningId = $database->getInsertId();
-    $sql = SELECT_WARNING . <<<SQL
+    $sql = SELECT_WARNING_SQL . <<<SQL
         WHERE warning.id = :warningId
     SQL;
     $replacements = array(

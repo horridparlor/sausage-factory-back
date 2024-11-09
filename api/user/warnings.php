@@ -9,7 +9,7 @@ include("../../system/sql/selectWarning.php");
 
 function listWarnings(Database $database): string
 {
-    $sql = SELECT_WARNING;
+    $sql = SELECT_WARNING_SQL;
     $warnings = $database->query($sql);
     return $database->responseSuccess(array(
         'countOfWarnings' => sizeof($warnings),

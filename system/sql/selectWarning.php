@@ -1,6 +1,6 @@
 <?php
 
-const SELECT_WARNING = <<<SQL
+const SELECT_WARNING_SQL = <<<SQL
     SELECT
         warning.id,
         warningType.id warningTypeId,
