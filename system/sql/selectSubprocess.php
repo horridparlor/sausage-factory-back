@@ -9,3 +9,8 @@ const SUBPROCESS_EXISTS_SQL = <<<SQL
         WHERE id = :comparedValue
     )
 SQL;
+
+const SELECT_SUBPROCESS_SQL = <<<SQL
+    SELECT id, name, code
+    FROM subprocess
+SQL;
