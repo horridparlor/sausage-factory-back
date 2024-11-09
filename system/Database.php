@@ -1,6 +1,8 @@
 <?php
 
 namespace system;
+use stdClass;
+
 require_once 'loadEnv.php';
 
 enum RequestType: string {
@@ -183,7 +185,7 @@ class Database
         if ($array) {
             return json_decode(json_encode($array));
         }
-        return $array;
+        return new stdClass;
     }
 
     public static function allowCORS(): void
@@ -285,11 +287,13 @@ class Database
             SELECT
                 user.id id,
                 username,
+                firstname,
+                lastname,
                 CASE
                     WHEN role.id IS NOT NULL THEN role.accessRights
                     ELSE IFNULL(user.accessRights, "{}")
                 END AS accessRights,
-                user.isActive
+                user.subprocessId
             FROM user
             LEFT JOIN userRole role
                 ON role.id = user.roleId
@@ -314,11 +318,13 @@ class Database
             SELECT
                 user.id id,
                 username,
+                firstname,
+                lastname,
                 CASE
                     WHEN role.id IS NOT NULL THEN role.accessRights
                     ELSE IFNULL(user.accessRights, "{}")
                 END AS accessRights,
-                user.isActive
+                user.subprocessId
             FROM authToken
             JOIN user
                 ON user.id = authToken.userId
@@ -338,7 +344,8 @@ class Database
             return null;
         }
         $user = $user[0];
-        return new User(intval($user['id']), $user['username'], json_decode($user['accessRights']), boolval($user['isActive']));
+        return new User(intval($user['id']), $user['username'], $user['firstname'], $user['lastname'],
+            json_decode($user['accessRights']), intval($user['subprocessId']));
     }
     public function getRequestData(): \stdClass {
         $requestData = json_decode(json_encode($this->params));

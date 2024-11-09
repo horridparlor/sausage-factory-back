@@ -18,22 +18,26 @@ class User
 {
     private int $id;
     private string $username;
+    private string $firstname;
+    private string $lastname;
     private \stdClass $accessRights;
     private string $accessRightErrorString;
     private string $adminAccessRight;
-    private bool $isActive;
+    private int $subprocessId;
 
-    public function __construct(int $id, string $username, \stdClass $accessRights, bool $isActive)
+    public function __construct(int $id, string $username, string $firstname, string $lastname, \stdClass $accessRights, int $subprocessId)
     {
         $this->id = $id;
         $this->username = $username;
+        $this->firstname = $firstname;
+        $this->lastname = $lastname;
         $this->accessRights = $accessRights;
-        $this->isActive = $isActive;
         $this->accessRightErrorString = NO_ERROR;
+        $this->subprocessId = $subprocessId;
     }
 
     public static function newDummyUser(\stdClass $accessRights): User {
-        return new User(0, '', $accessRights, true);
+        return new User(0, '', '', '', $accessRights, 1);
     }
 
     public function getId(): int
@@ -45,10 +49,23 @@ class User
     {
         return $this->username;
     }
-
-    public function getIsActive(): bool
+    public function getFirstname(): string
     {
-        return $this->isActive;
+        return $this->firstname;
+    }
+    public function getLastname(): string
+    {
+        return $this->lastname;
+    }
+
+    public function getAccessRights(): \stdClass
+    {
+        return $this->accessRights;
+    }
+
+    public function getSubprocessId(): int
+    {
+        return $this->subprocessId;
     }
 
     public function isSuperAdmin(): bool

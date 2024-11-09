@@ -1,6 +1,6 @@
 <?php
 
-const SELECT_WARNING = <<<SQL 
+const SELECT_WARNING = <<<SQL
     SELECT
         warning.id,
         warningType.id warningTypeId,
@@ -9,5 +9,8 @@ const SELECT_WARNING = <<<SQL
         subprocess.name subprocessName,
         warning.createdAt
     FROM warning
-    JOIN warningType 
+    JOIN warningType
+        ON warningType.id = warning.warningTypeId
+    JOIN subprocess
+        ON subprocess.id = warning.subprocessId
 SQL;
