@@ -1,0 +1,75 @@
+sudo apt update
+sudo apt upgrade
+
+sudo apt install mysql-server
+sudo mysql_secure_installation
+sudo nano /etc/mysql/mysql.conf.d/mysqld.cnf
+
+bind-address = 0.0.0.0
+
+sudo systemctl restart mysql
+sudo ufw enable
+sudo ufw allow 3306
+sudo ufw allow 80/tcp
+sudo ufw reload
+
+sudo mysql -u root -p
+CREATE USER 'sausage'@'localhost' IDENTIFIED BY 'SausageMan-sSecretWeapon69';
+
+CREATE DATABASE sausage;
+use sausage;
+GRANT ALL PRIVILEGES ON `sausage`.* TO 'sausage'@'localhost';
+FLUSH PRIVILEGES;
+EXIT
+
+sudo apt install apache2
+sudo ufw enable
+sudo ufw allow 22/tcp
+sudo apt install unzip
+
+sudo nano /var/www/html/.htaccess
+
+Options -MultiViews
+RewriteEngine On
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^ index.html [QSA,L]
+
+nano /etc/apache2/apache2.conf
+
+<Directory /var/www/html>
+       Options Indexes FollowSymLinks
+       AllowOverride All
+       Require all granted
+</Directory>
+
+sudo a2enmod rewrite
+sudo systemctl restart apache2
+
+#Error logging
+sudo tail -f /var/log/apache2/error.log
+
+ssh-keygen -t rsa -b 4096 -C "eero.laine.posti@gmail.com"
+cd /home/ubuntu/.ssh
+cat id_rsa.pub
+
+cd /home/ubuntu
+git clone git@github.com:horridparlor/sausage-factory-back.git
+nano sausage-factory-back/system/.env
+
+DB_HOST=localhost
+DB_USER=sausage
+DB_PASS=SausageMan-sSecretWeapon69
+DB_NAME=sausage
+
+sudo mv sausage-factory-back /var/www/html/sausage-factory-back
+
+sudo apt install php8.1 php8.1-fpm php8.1-mysql
+sudo a2enmod proxy_fcgi setenvif
+sudo systemctl restart apache2
+sudo nano /etc/apache2/sites-available/000-default.conf
+
+<FilesMatch ".php$">
+  SetHandler "proxy:unix:/var/run/php/php8.1-fpm.sock|fcgi://localhost/"
+</FilesMatch>
+
+sudo systemctl restart apache2
